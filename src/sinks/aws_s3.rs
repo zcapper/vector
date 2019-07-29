@@ -31,6 +31,9 @@ pub struct S3Sink {
     client: S3Client,
     bucket: String,
     gzip: bool,
+    acl: Option<String>,
+    sse: Option<String>,
+    sse_kms_key_id: Option<String>,
     filename_time_format: String,
     filename_append_uuid: bool,
     filename_extension: Option<String>,
@@ -49,6 +52,8 @@ pub struct S3SinkConfig {
     pub encoding: Encoding,
     pub batch_size: Option<usize>,
     pub compression: Compression,
+    pub acl: Option<String>,
+    pub sse_kms_key_id: Option<String>,
     pub batch_timeout: Option<u64>,
 
     // Tower Request based configuration
@@ -133,10 +138,18 @@ impl S3Sink {
             Template::from("date=%F/")
         };
 
+        let sse = match config.sse_kms_key_id {
+            None => None,
+            _ => Some("aws:kms".to_owned()),
+        };
+
         let s3 = S3Sink {
             client: Self::create_client(config.region.clone().try_into()?),
             bucket: config.bucket.clone(),
             gzip: compression,
+            acl: config.acl.clone(),
+            sse: sse.clone(),
+            sse_kms_key_id: config.sse_kms_key_id.clone(),
             filename_time_format,
             filename_append_uuid,
             filename_extension: config.filename_extension.clone(),
@@ -234,6 +247,7 @@ impl Service<PartitionInnerBuffer<Vec<u8>, Bytes>> for S3Sink {
         );
 
         let request = PutObjectRequest {
+            acl: self.acl.clone(),
             body: Some(inner.into()),
             bucket: self.bucket.clone(),
             key,
@@ -242,6 +256,8 @@ impl Service<PartitionInnerBuffer<Vec<u8>, Bytes>> for S3Sink {
             } else {
                 None
             },
+            server_side_encryption: self.sse.clone(),
+            ssekms_key_id: self.sse_kms_key_id.clone(),
             ..Default::default()
         };
 
